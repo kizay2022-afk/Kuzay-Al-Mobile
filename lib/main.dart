@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'github_project.dart';
 import 'self_editor_engine.dart';
+import 'self_editor_locator.dart';
 
 const orange = Color(0xFFFF6A00);
 const black = Color(0xFF090909);
@@ -523,6 +524,7 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
   bool busy=false,loaded=false;
   String filePath='lib/main.dart', source='', sha='', status='Готов';
   String? find,replace,summary,patchFile;
+  int? highlightStart,highlightEnd;
   final files=SelfEditorEngine.allowedFiles;
   final blockList=const ['Шрифт приложения','Цветовая тема','Навигация','Настройки ИИ','Чат','Workspace','AI Designer','Саморедактор','Плагины'];
 
@@ -557,7 +559,8 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
         patchSource=d['content']!;patchSha=d['sha']!;
       }
       SelfEditorEngine.apply(patchSource,patch);
-      setState((){patchFile=patch.filePath;find=patch.find;replace=patch.replace;summary=patch.summary;status='Patch готов для '+patch.filePath+'. Проверь Diff.';tab=2;});
+      final loc=SelfEditorLocator.locate(patchSource,patch.find);
+      setState((){patchFile=patch.filePath;find=patch.find;replace=patch.replace;summary=patch.summary;highlightStart=loc?.startLine;highlightEnd=loc?.endLine;status='Patch готов для '+patch.filePath+'. Строки '+(loc?.startLine.toString()??'?')+'–'+(loc?.endLine.toString()??'?')+'. Проверь Diff.';tab=2;});
       if(patch.filePath!=filePath){filePath=patch.filePath;source=patchSource;sha=patchSha;loaded=true;}
     }catch(e){setState(()=>status='Ошибка AI: '+e.toString());}
     finally{if(mounted)setState(()=>busy=false);}
@@ -574,7 +577,7 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
       final patch=SelfPatch(filePath:target,summary:summary??'Изменение',find:find!,replace:replace!);
       final updated=SelfEditorEngine.apply(current,patch);
       await GitHubProject.updateFile(filePath:target,content:updated,sha:currentSha,message:'Kuzay AI Self Editor: '+(summary??'patch'));
-      setState((){filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;status='Изменение применено в GitHub. Запущена сборка APK.';tab=1;});
+      setState((){filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;status='Изменение применено в GitHub. Запущена сборка APK.';tab=1;});
     }catch(e){setState(()=>status='Ошибка применения: '+e.toString());}
     finally{if(mounted)setState(()=>busy=false);}
   }
@@ -616,7 +619,7 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
       DropdownButton<String>(value:filePath,items:files.map((x)=>DropdownMenuItem(value:x,child:Text(x))).toList(),onChanged:busy?null:(v){if(v!=null)load(v);}),
       IconButton(onPressed:busy?null:()=>load(filePath),icon:const Icon(Icons.refresh,color:orange))
     ]),
-    Expanded(child:SingleChildScrollView(child:SelectableText(loaded?source:'Выберите файл и нажмите загрузить.',style:const TextStyle(fontFamily:'monospace',fontSize:12))))
+    Expanded(child:SingleChildScrollView(child:SelectableText(loaded?SelfEditorLocator.numbered(source,highlightStart:highlightStart,highlightEnd:highlightEnd).join('\n'):'Выберите файл и нажмите загрузить.',style:const TextStyle(fontFamily:'monospace',fontSize:12))))
   ]);
 
   Widget blockView()=>ListView(children:[
