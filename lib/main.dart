@@ -549,7 +549,7 @@ class _SelfEditorPageState extends State<SelfEditorPage> {
     final i = blocks.indexWhere((b) => b[0].toLowerCase().contains(q) || b[1].toLowerCase().contains(q));
     setState(() {
       highlighted = i;
-      status = i >= 0 ? 'Подсвечен блок: \${blocks[i][0]}' : 'Блок не найден';
+      status = i >= 0 ? 'Подсвечен блок: ${blocks[i][0]}' : 'Блок не найден';
       if (i >= 0) tab = 0;
     });
   }
@@ -667,10 +667,10 @@ main.dart
             side: BorderSide(color: active ? orange : Colors.transparent, width: active ? 2 : 0),
           ),
           child: ListTile(
-            onTap: () => setState(() { highlighted = i; status = 'Выбран блок: \${b[0]}'; }),
+            onTap: () => setState(() { highlighted = i; status = 'Выбран блок: ${b[0]}'; }),
             leading: Icon(active ? Icons.highlight : Icons.code, color: active ? orange : Colors.white54),
             title: Text(b[0]),
-            subtitle: Text('\${b[1]}\n\${b[2]}', style: const TextStyle(color: Colors.white54)),
+            subtitle: Text('${b[1]}\n${b[2]}', style: const TextStyle(color: Colors.white54)),
             isThreeLine: true,
           ),
         );
