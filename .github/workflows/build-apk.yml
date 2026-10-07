@@ -22,7 +22,7 @@ jobs:
       - name: Create Android project
         run: flutter create . --platforms=android --project-name kuzay_ai
       - name: Set Android compile SDK
-        run: sed -i 's/compileSdk flutter.compileSdkVersion/compileSdk 35/' android/app/build.gradle
+        run: sed -i -E 's/compileSdk( =)? [0-9]+/compileSdk 35/' android/app/build.gradle
       - name: Apply Kuzay cat icon
         shell: bash
         run: |
