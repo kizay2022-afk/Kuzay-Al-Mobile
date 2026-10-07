@@ -554,20 +554,22 @@ class _SelfEditorPageState extends State<SelfEditorPage> {
     });
   }
 
-  void runCommand() {
-    final q = command.text.trim().toLowerCase();
+  Future<void> runCommand() async {
+    final raw = command.text.trim();
+    final q = raw.toLowerCase();
     if (q.isEmpty) return;
+
     if (q.contains('исходн') || q.contains('код')) {
       setState(() { tab = 1; status = 'Открыт исходный код приложения'; });
       return;
     }
     if (q.contains('шрифт')) {
       if (q.contains('моно') || q.contains('monospace') || q.contains('код')) {
-        applyFont('monospace');
+        await applyFont('monospace');
       } else if (q.contains('serif') || q.contains('с засеч')) {
-        applyFont('serif');
+        await applyFont('serif');
       } else {
-        applyFont('sans-serif');
+        await applyFont('sans-serif');
       }
       highlightBlock('Шрифт приложения');
       return;
@@ -582,9 +584,42 @@ class _SelfEditorPageState extends State<SelfEditorPage> {
       else highlightBlock(q.replaceAll(RegExp(r'подсвети|подсветь|найди|блок'), '').trim());
       return;
     }
-    setState(() => status = 'Команда не распознана. Попробуйте: «измени шрифт на моноширинный», «открой исходный код» или «подсвети блок шрифта».');
-  }
 
+    setState(() => status = 'AI анализирует команду…');
+    try {
+      final provider = await Store.getProvider();
+      final model = await Store.getModel();
+      final answer = await AiService.ask(
+        provider: provider,
+        model: model,
+        prompt: '''Ты управляешь безопасным саморедактором Kuzay AI.
+Верни только одну строку JSON.
+Разрешённые действия:
+{"action":"open_source"}
+{"action":"highlight","block":"Шрифт приложения|Цветовая тема|Навигация|Настройки ИИ|Чат|Workspace|AI Designer"}
+{"action":"set_font","font":"sans-serif|serif|monospace"}
+Если выполнить нельзя, верни {"action":"unsupported"}.
+Запрос пользователя: $raw''',
+      );
+      final data = jsonDecode(answer.trim());
+      final action = data['action']?.toString();
+      if (action == 'open_source') {
+        setState(() { tab = 1; status = 'AI открыл исходный код'; });
+      } else if (action == 'highlight') {
+        highlightBlock(data['block']?.toString() ?? '');
+      } else if (action == 'set_font') {
+        final font = data['font']?.toString() ?? 'sans-serif';
+        if (['sans-serif','serif','monospace'].contains(font)) {
+          await applyFont(font);
+          highlightBlock('Шрифт приложения');
+        }
+      } else {
+        setState(() => status = 'AI не разрешил это изменение.');
+      }
+    } catch (e) {
+      setState(() => status = 'Не удалось обработать AI-команду: $e');
+    }
+  }
   Widget sourceView() {
     const source = '''// Kuzay AI — карта исходного кода
 //
