@@ -10,17 +10,26 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 const orange = Color(0xFFFF6A00);
 const black = Color(0xFF090909);
 const panel = Color(0xFF151515);
+final ValueNotifier<String> kuzayFont = ValueNotifier<String>('sans-serif');
 
-void main() => runApp(const KuzayApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final p = await SharedPreferences.getInstance();
+  kuzayFont.value = p.getString('app_font') ?? 'sans-serif';
+  runApp(const KuzayApp());
+}
 
 class KuzayApp extends StatelessWidget {
   const KuzayApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
+  Widget build(BuildContext context) => ValueListenableBuilder<String>(
+    valueListenable: kuzayFont,
+    builder: (context, font, _) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'Kuzay AI',
     theme: ThemeData(
       brightness: Brightness.dark,
+      fontFamily: font,
       scaffoldBackgroundColor: black,
       colorScheme: const ColorScheme.dark(primary: orange, secondary: Color(0xFFFF8A30)),
       inputDecorationTheme: InputDecorationTheme(
@@ -36,7 +45,7 @@ class KuzayApp extends StatelessWidget {
       ),
     ),
     home: const HomePage(),
-  );
+  ));
 }
 
 class Store {
@@ -225,6 +234,7 @@ class _HomePageState extends State<HomePage> {
         _nav(Icons.dashboard, 'Workspace', () { Navigator.pop(context); open(const WorkspacePage()); }),
         _nav(Icons.brush, 'AI Designer', () { Navigator.pop(context); open(const DesignerPage()); }),
         _nav(Icons.extension, 'Plugins', () { Navigator.pop(context); open(const PluginsPage()); }),
+        _nav(Icons.build, 'Self Editor', () { Navigator.pop(context); open(const SelfEditorPage()); }),
         _nav(Icons.settings, 'Settings', () { Navigator.pop(context); open(const SettingsPage()); }),
       ]),
     ),
@@ -351,6 +361,8 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 24),
       const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('API-ключи сохраняются локально в защищённом хранилище Android. Kuzay AI не имеет собственного сервера для передачи ключей.', style: TextStyle(color: Colors.white70)))),
       const SizedBox(height: 16),
+      OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SelfEditorPage())),icon:const Icon(Icons.build),label:const Text('Саморедактор приложения')),
+      const SizedBox(height: 16),
       const Text('Примеры моделей', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
       const Text('OpenAI: gpt-4o-mini\nGemini: gemini-2.5-flash\nGrok: модель, доступная вашему xAI API-аккаунту\nCustom: URL совместимого /chat/completions API'),
@@ -435,7 +447,12 @@ class _WorkspacePageState extends State<WorkspacePage> {
     body:Column(children:[
       SizedBox(height:58,child:Row(children:[_tab(0,'Chat',Icons.chat),_tab(1,'Code',Icons.code),_tab(2,'Files',Icons.folder),_tab(3,'Notes',Icons.notes)])),
       Expanded(child:Padding(padding:const EdgeInsets.all(12),child:
-        tab==0 ? Column(children:[const Expanded(child:Center(child:Text('Workspace Chat'))),ElevatedButton.icon(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.chat),label:const Text('Открыть основной AI-чат'))]) :
+        tab==0 ? Column(children:[
+          const Expanded(child:Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Icon(Icons.auto_awesome,size:48,color:orange),SizedBox(height:12),Text('Workspace AI'),SizedBox(height:6),Text('Попросите изменить интерфейс, найти блок или открыть исходный код.',textAlign:TextAlign.center,style:TextStyle(color:Colors.white54))]))),
+          ElevatedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const SelfEditorPage())),icon:const Icon(Icons.build),label:const Text('Открыть саморедактор')),
+          const SizedBox(height:8),
+          OutlinedButton.icon(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.chat),label:const Text('Открыть основной AI-чат'))
+        ]) :
         tab==1 ? Column(children:[
           Expanded(child:TextField(controller:code,maxLines:null,expands:true,style:const TextStyle(fontFamily:'monospace'),decoration:const InputDecoration(labelText:'Редактор кода'))),
           const SizedBox(height:8),
@@ -489,6 +506,189 @@ class _DesignerPageState extends State<DesignerPage> {
       const SizedBox(height:18),
       Card(child:Padding(padding:const EdgeInsets.all(18),child:SelectableText(preview,style:const TextStyle(fontSize:16)))),
     ]),
+  );
+}
+
+
+class SelfEditorPage extends StatefulWidget {
+  const SelfEditorPage({super.key});
+  @override State<SelfEditorPage> createState() => _SelfEditorPageState();
+}
+
+class _SelfEditorPageState extends State<SelfEditorPage> {
+  final command = TextEditingController();
+  int tab = 0;
+  int highlighted = -1;
+  String status = 'Готов к изменению приложения';
+  String selectedFont = 'sans-serif';
+
+  final blocks = const [
+    ['Шрифт приложения', 'ThemeData.fontFamily', 'Управляет шрифтом всего интерфейса.'],
+    ['Цветовая тема', 'orange / black / panel', 'Основные цвета и панели интерфейса.'],
+    ['Навигация', 'HomePage.drawer', 'Пункты бокового меню и переходы между экранами.'],
+    ['Настройки ИИ', 'SettingsPage', 'Провайдеры, модели, API-ключи и URL.'],
+    ['Чат', 'HomePage + AiService', 'Сообщения, запросы к ИИ, файлы и голос.'],
+    ['Workspace', 'WorkspacePage', 'Код, файлы, заметки и Workspace AI.'],
+    ['AI Designer', 'DesignerPage', 'Конструктор интерфейса и предпросмотр.'],
+  ];
+
+  @override void initState() {
+    super.initState();
+    selectedFont = kuzayFont.value;
+  }
+
+  Future<void> applyFont(String font) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('app_font', font);
+    kuzayFont.value = font;
+    if (mounted) setState(() => status = 'Шрифт изменён: $font');
+  }
+
+  void highlightBlock(String query) {
+    final q = query.toLowerCase();
+    final i = blocks.indexWhere((b) => b[0].toLowerCase().contains(q) || b[1].toLowerCase().contains(q));
+    setState(() {
+      highlighted = i;
+      status = i >= 0 ? 'Подсвечен блок: \${blocks[i][0]}' : 'Блок не найден';
+      if (i >= 0) tab = 0;
+    });
+  }
+
+  void runCommand() {
+    final q = command.text.trim().toLowerCase();
+    if (q.isEmpty) return;
+    if (q.contains('исходн') || q.contains('код')) {
+      setState(() { tab = 1; status = 'Открыт исходный код приложения'; });
+      return;
+    }
+    if (q.contains('шрифт')) {
+      if (q.contains('моно') || q.contains('monospace') || q.contains('код')) {
+        applyFont('monospace');
+      } else if (q.contains('serif') || q.contains('с засеч')) {
+        applyFont('serif');
+      } else {
+        applyFont('sans-serif');
+      }
+      highlightBlock('Шрифт приложения');
+      return;
+    }
+    if (q.contains('подсвет') || q.contains('найди') || q.contains('блок')) {
+      if (q.contains('шрифт')) highlightBlock('Шрифт приложения');
+      else if (q.contains('цвет')) highlightBlock('Цветовая тема');
+      else if (q.contains('чат')) highlightBlock('Чат');
+      else if (q.contains('workspace') || q.contains('рабоч')) highlightBlock('Workspace');
+      else if (q.contains('дизайн')) highlightBlock('AI Designer');
+      else if (q.contains('настрой')) highlightBlock('Настройки ИИ');
+      else highlightBlock(q.replaceAll(RegExp(r'подсвети|подсветь|найди|блок'), '').trim());
+      return;
+    }
+    setState(() => status = 'Команда не распознана. Попробуйте: «измени шрифт на моноширинный», «открой исходный код» или «подсвети блок шрифта».');
+  }
+
+  Widget sourceView() {
+    const source = '''// Kuzay AI — карта исходного кода
+//
+// Этот экран показывает логические блоки приложения.
+// Полный исходник проекта находится в Workspace.
+
+main.dart
+├─ KuzayApp
+│  └─ ThemeData → fontFamily
+├─ HomePage
+│  ├─ Chat
+│  ├─ Voice input
+│  └─ File attachment
+├─ SettingsPage
+│  └─ AI providers / models / API keys
+├─ ComparePage
+├─ WorkspacePage
+├─ DesignerPage
+├─ PluginsPage
+└─ SelfEditorPage
+   └─ безопасные изменения конфигурации''';
+    return Column(children: [
+      const Align(alignment: Alignment.centerLeft, child: Text('Исходный код / карта проекта', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
+      const SizedBox(height: 10),
+      Expanded(child: Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: const Color(0xFF111111), borderRadius: BorderRadius.circular(14)), child: SingleChildScrollView(child: SelectableText(source, style: const TextStyle(fontFamily: 'monospace', color: Colors.white70))))),
+      const SizedBox(height: 10),
+      const Text('Саморедактор применяет только разрешённые изменения конфигурации. Полный исходник можно просматривать и редактировать в Workspace.', style: TextStyle(color: Colors.white54)),
+    ]);
+  }
+
+  Widget blocksView() => ListView(
+    children: [
+      const Text('Блоки приложения', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      const Text('AI может найти нужный блок и подсветить его. Нажмите на блок вручную — он тоже подсветится.', style: TextStyle(color: Colors.white54)),
+      const SizedBox(height: 12),
+      ...List.generate(blocks.length, (i) {
+        final b = blocks[i];
+        final active = highlighted == i;
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          color: active ? const Color(0xFF3B1D0B) : panel,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: active ? orange : Colors.transparent, width: active ? 2 : 0),
+          ),
+          child: ListTile(
+            onTap: () => setState(() { highlighted = i; status = 'Выбран блок: \${b[0]}'; }),
+            leading: Icon(active ? Icons.highlight : Icons.code, color: active ? orange : Colors.white54),
+            title: Text(b[0]),
+            subtitle: Text('\${b[1]}\n\${b[2]}', style: const TextStyle(color: Colors.white54)),
+            isThreeLine: true,
+          ),
+        );
+      }),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('Саморедактор Kuzay AI'),
+      actions: [
+        IconButton(tooltip: 'Открыть Workspace', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkspacePage())), icon: const Icon(Icons.folder_open)),
+      ],
+    ),
+    body: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(children: [
+        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+          const Align(alignment: Alignment.centerLeft, child: Text('AI-команда', style: TextStyle(fontWeight: FontWeight.bold))),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: command, maxLines: 2, decoration: const InputDecoration(hintText: 'Например: «измени шрифт на моноширинный»'))),
+            const SizedBox(width: 8),
+            IconButton(onPressed: runCommand, icon: const Icon(Icons.auto_awesome, color: orange), tooltip: 'Выполнить'),
+          ]),
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerLeft, child: Text(status, style: const TextStyle(color: Colors.white54))),
+        ])),
+        const SizedBox(height: 8),
+        SizedBox(height: 50, child: Row(children: [
+          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 0), icon: const Icon(Icons.view_list), label: const Text('Блоки'))),
+          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 1), icon: const Icon(Icons.code), label: const Text('Исходный код'))),
+          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 2), icon: const Icon(Icons.text_fields), label: const Text('Шрифт'))),
+        ])),
+        Expanded(child: tab == 0 ? blocksView() : tab == 1 ? sourceView() : Column(children: [
+          const Align(alignment: Alignment.centerLeft, child: Text('Изменение шрифта', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: selectedFont,
+            items: const [
+              DropdownMenuItem(value: 'sans-serif', child: Text('Обычный Sans')),
+              DropdownMenuItem(value: 'serif', child: Text('Serif')),
+              DropdownMenuItem(value: 'monospace', child: Text('Моноширинный')),
+            ],
+            onChanged: (v) { if (v != null) { setState(() => selectedFont = v); applyFont(v); } },
+            decoration: const InputDecoration(labelText: 'Шрифт приложения'),
+          ),
+          const SizedBox(height: 18),
+          Card(child: Padding(padding: const EdgeInsets.all(18), child: Text('Пример текста\nKuzay AI — 0123456789\nИзменения применяются сразу во всём интерфейсе.', style: TextStyle(fontSize: 18, fontFamily: selectedFont)))),
+        ])),
+      ]),
+    ),
   );
 }
 
