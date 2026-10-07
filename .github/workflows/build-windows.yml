@@ -1,0 +1,46 @@
+name: Build Kuzay AI Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Create Windows project
+        run: flutter create . --platforms=windows --project-name kuzay_ai
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Create portable package
+        shell: powershell
+        run: |
+          $src = "build/windows/x64/runner/Release"
+          $dst = "Kuzay-AI-Windows"
+          if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+          New-Item -ItemType Directory -Path $dst | Out-Null
+          Copy-Item "$src/*" $dst -Recurse -Force
+          Compress-Archive -Path "$dst/*" -DestinationPath "Kuzay-AI-Windows.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kuzay-AI-Windows
+          path: Kuzay-AI-Windows.zip
+          retention-days: 90
