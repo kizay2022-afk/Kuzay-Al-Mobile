@@ -551,7 +551,8 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
     try{
       if(!loaded){final d=await SelfEditorEngine.load(filePath);source=d['content']!;sha=d['sha']!;loaded=true;}
       final p=await Store.getProvider(),m=await Store.getModel();
-      final context=find==null?source:'ВЫБРАННЫЙ БЛОК:\n'+find+'\n\nПОЛНЫЙ ИСХОДНИК ДЛЯ КОНТЕКСТА:\n'+source;
+      final selected=find;
+      final context=selected==null?source:'ВЫБРАННЫЙ БЛОК:\n'+selected+'\n\nПОЛНЫЙ ИСХОДНИК ДЛЯ КОНТЕКСТА:\n'+source;
       final a=await AiService.ask(provider:p,model:m,prompt:'Ты безопасный редактор Flutter проекта. Верни только JSON: {"action":"patch","file":"путь","summary":"описание","find":"точный фрагмент","replace":"новый фрагмент"} или {"action":"unsupported","summary":"причина"}. file должен быть одним из: '+SelfEditorEngine.allowedFiles.join(', ')+'. find должен существовать в выбранном исходнике ровно один раз. Если выбран блок, изменяй прежде всего его. Только небольшой patch. Не удаляй безопасность, API key storage или проверки. Не добавляй произвольное выполнение кода. Запрос: '+q+'\nТЕКУЩИЙ ФАЙЛ: '+filePath+'\n'+context);
       final patch=SelfEditorEngine.parsePatch(a,filePath);
       String patchSource=source;
@@ -579,7 +580,7 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
       final patch=SelfPatch(filePath:target,summary:summary??'Изменение',find:find!,replace:replace!);
       final updated=SelfEditorEngine.apply(current,patch);
       final commit=await GitHubProject.updateFile(filePath:target,content:updated,sha:currentSha,message:'Kuzay AI Self Editor: '+(summary??'patch'));
-      setState(()=>{filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;buildStatus='queued';buildUrl='';status='Изменение применено. Ожидаю GitHub Actions…';tab=1;});
+      setState((){filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;buildStatus='queued';buildUrl='';status='Изменение применено. Ожидаю GitHub Actions…';tab=1;});
       _watchBuild(commit);
     }catch(e){setState(()=>status='Ошибка применения: '+e.toString());}
     finally{if(mounted)setState(()=>busy=false);}
