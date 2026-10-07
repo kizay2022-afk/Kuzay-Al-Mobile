@@ -9,9 +9,11 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.24.5"
           channel: stable
@@ -20,7 +22,7 @@ jobs:
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
-      - name: Create Windows project
+      - name: Create Windows platform files
         run: flutter create . --platforms=windows --project-name kuzay_ai
 
       - name: Get packages
@@ -29,18 +31,67 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
-      - name: Create portable package
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Create installer script
         shell: powershell
         run: |
-          $src = "build/windows/x64/runner/Release"
-          $dst = "Kuzay-AI-Windows"
-          if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-          New-Item -ItemType Directory -Path $dst | Out-Null
-          Copy-Item "$src/*" $dst -Recurse -Force
-          Compress-Archive -Path "$dst/*" -DestinationPath "Kuzay-AI-Windows.zip" -Force
+          @"
+          #define MyAppName "Kuzay AI"
+          #define MyAppVersion "1.1.0"
+          #define MyAppPublisher "Kuzay AI"
+          #define MyAppExeName "kuzay_ai.exe"
 
-      - uses: actions/upload-artifact@v4
+          [Setup]
+          AppId={{A1D7A4B7-5C5D-4A72-9C65-5B7A2F0D9A11}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          DefaultDirName={autopf}\Kuzay AI
+          DefaultGroupName=Kuzay AI
+          OutputDir=installer
+          OutputBaseFilename=Kuzay-AI-Setup
+          Compression=lzma2
+          SolidCompression=yes
+          ArchitecturesInstallIn64BitMode=x64
+          PrivilegesRequired=lowest
+          UninstallDisplayName=Kuzay AI
+
+          [Files]
+          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+
+          [Icons]
+          Name: "{autodesktop}\Kuzay AI"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+          Name: "{group}\Kuzay AI"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+
+          [Run]
+          Filename: "{app}\{#MyAppExeName}"; Description: "Запустить Kuzay AI"; Flags: nowait postinstall skipifsilent
+          "@ | Set-Content -Path installer.iss -Encoding UTF8
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force installer | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create portable ZIP
+        shell: powershell
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "Kuzay-AI-Windows-Portable.zip" -Force
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
         with:
-          name: Kuzay-AI-Windows
-          path: Kuzay-AI-Windows.zip
+          name: Kuzay-AI-Setup
+          path: installer\Kuzay-AI-Setup.exe
+          retention-days: 90
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kuzay-AI-Windows-Portable
+          path: Kuzay-AI-Windows-Portable.zip
           retention-days: 90
