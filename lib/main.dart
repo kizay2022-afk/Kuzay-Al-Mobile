@@ -29,7 +29,7 @@ class KuzayApp extends StatelessWidget {
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: orange)),
       ),
-      cardTheme: CardThemeData(color: panel, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+      cardTheme: CardTheme(color: panel, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
       appBarTheme: const AppBarTheme(backgroundColor: black, elevation: 0),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(backgroundColor: orange, foregroundColor: Colors.black, minimumSize: const Size.fromHeight(50)),
