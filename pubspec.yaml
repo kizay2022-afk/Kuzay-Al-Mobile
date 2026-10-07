@@ -11,7 +11,7 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.3.2
   file_picker: ^8.1.2
-  speech_to_text: ^7.0.0
+  speech_to_text: 7.0.0
 
 flutter:
   uses-material-design: true
