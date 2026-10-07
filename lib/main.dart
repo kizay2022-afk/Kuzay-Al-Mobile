@@ -10,6 +10,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'github_project.dart';
 import 'self_editor_engine.dart';
 import 'self_editor_locator.dart';
+import 'local_ai_service.dart';
 
 const orange = Color(0xFFFF6A00);
 const black = Color(0xFF090909);
@@ -54,9 +55,10 @@ class KuzayApp extends StatelessWidget {
 
 class Store {
   static const secure = FlutterSecureStorage();
-  static const providers = ['OpenAI', 'Gemini', 'Grok', 'Custom'];
+  static const providers = ['Local', 'OpenAI', 'Gemini', 'Grok', 'Custom'];
 
   static String defaultModel(String p) {
+    if (p == 'Local') return 'TinyLlama 1.1B Chat';
     if (p == 'Gemini') return 'gemini-2.5-flash';
     if (p == 'Grok') return 'grok-3-mini';
     return 'gpt-4o-mini';
@@ -72,7 +74,7 @@ class Store {
 
   static Future<String> getProvider() async {
     final p = await SharedPreferences.getInstance();
-    return p.getString('provider') ?? 'OpenAI';
+    return p.getString('provider') ?? 'Local';
   }
   static Future<String> getModel() async {
     final p = await SharedPreferences.getInstance();
@@ -93,6 +95,7 @@ class AiService {
     String? system,
   }) async {
     final key = await Store.getKey(provider);
+    if (provider == 'Local') return LocalAiService.ask(prompt, system: system);
     if (key.trim().isEmpty) throw Exception('Для $provider не задан API-ключ. Откройте Settings.');
     if (provider == 'Gemini') return _gemini(key, model, prompt, system);
     final url = provider == 'Custom' ? await Store.getUrl() : Store.defaultUrl(provider);
@@ -187,7 +190,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadSettings() async {
     final p = await SharedPreferences.getInstance();
-    final selected = p.getString('provider') ?? 'OpenAI';
+    final selected = p.getString('provider') ?? 'Local';
     if (!mounted) return;
     setState(() { provider = selected; model = p.getString('model_$selected') ?? Store.defaultModel(selected); });
   }
@@ -302,7 +305,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    final selected = p.getString('provider') ?? 'OpenAI';
+    final selected = p.getString('provider') ?? 'Local';
     final key = await Store.getKey(selected);
     if (!mounted) return;
     setState(() {
@@ -354,7 +357,8 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       const SizedBox(height: 14), TextField(controller: modelController, decoration: const InputDecoration(labelText: 'Model')),
       const SizedBox(height: 14),
-      TextField(controller: keyController, obscureText: obscure, decoration: InputDecoration(labelText: 'API key', suffixIcon: IconButton(icon: Icon(obscure ? Icons.visibility : Icons.visibility_off), onPressed: () => setState(() => obscure = !obscure)))),
+      if (provider != 'Local') TextField(controller: keyController, obscureText: obscure, decoration: InputDecoration(labelText: 'API key', suffixIcon: IconButton(icon: Icon(obscure ? Icons.visibility : Icons.visibility_off), onPressed: () => setState(() => obscure = !obscure)))),
+      if (provider == 'Local') const Card(child: Padding(padding: EdgeInsets.all(14), child: Text('Локальная ИИ работает прямо на телефоне. API-ключ не нужен. При первом запуске нужно скачать модель (~638 МБ); после этого она работает без интернета.', style: TextStyle(color: Colors.white70)))),
       if (provider == 'Custom') ...[const SizedBox(height: 14), TextField(controller: urlController, decoration: const InputDecoration(labelText: 'Chat Completions URL'))],
       const SizedBox(height: 18),
       Row(children: [
@@ -369,7 +373,7 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 16),
       const Text('Примеры моделей', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      const Text('OpenAI: gpt-4o-mini\nGemini: gemini-2.5-flash\nGrok: модель, доступная вашему xAI API-аккаунту\nCustom: URL совместимого /chat/completions API'),
+      const Text('Local: TinyLlama 1.1B Chat (~638 МБ)\nOpenAI: gpt-4o-mini\nGemini: gemini-2.5-flash\nGrok: модель, доступная вашему xAI API-аккаунту\nCustom: URL совместимого /chat/completions API'),
     ]),
   );
 }
