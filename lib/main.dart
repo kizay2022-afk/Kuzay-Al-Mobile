@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'github_project.dart';
 
 const orange = Color(0xFFFF6A00);
 const black = Color(0xFF090909);
@@ -512,222 +513,38 @@ class _DesignerPageState extends State<DesignerPage> {
 
 class SelfEditorPage extends StatefulWidget {
   const SelfEditorPage({super.key});
-  @override State<SelfEditorPage> createState() => _SelfEditorPageState();
+  @override State<SelfEditorPage> createState()=>_SelfEditorPageState();
 }
-
-class _SelfEditorPageState extends State<SelfEditorPage> {
-  final command = TextEditingController();
-  int tab = 0;
-  int highlighted = -1;
-  String status = 'Готов к изменению приложения';
-  String selectedFont = 'sans-serif';
-
-  final blocks = const [
-    ['Шрифт приложения', 'ThemeData.fontFamily', 'Управляет шрифтом всего интерфейса.'],
-    ['Цветовая тема', 'orange / black / panel', 'Основные цвета и панели интерфейса.'],
-    ['Навигация', 'HomePage.drawer', 'Пункты бокового меню и переходы между экранами.'],
-    ['Настройки ИИ', 'SettingsPage', 'Провайдеры, модели, API-ключи и URL.'],
-    ['Чат', 'HomePage + AiService', 'Сообщения, запросы к ИИ, файлы и голос.'],
-    ['Workspace', 'WorkspacePage', 'Код, файлы, заметки и Workspace AI.'],
-    ['AI Designer', 'DesignerPage', 'Конструктор интерфейса и предпросмотр.'],
-  ];
-
-  @override void initState() {
-    super.initState();
-    selectedFont = kuzayFont.value;
+class _SelfEditorPageState extends State<SelfEditorPage>{
+  final command=TextEditingController(), token=TextEditingController();
+  int tab=0; bool busy=false,loaded=false; String source='',sha='',status='Готов'; String? find,replace,summary;
+  final blockList=const ['Шрифт приложения','Цветовая тема','Навигация','Настройки ИИ','Чат','Workspace','AI Designer'];
+  @override void initState(){super.initState();GitHubProject.token().then((v){token.text=v;});}
+  Future<void> load()async{setState(()=>busy=true);try{final d=await GitHubProject.fetchMain();setState((){source=d['content']!;sha=d['sha']!;loaded=true;status='Загружен реальный lib/main.dart';tab=1;});}catch(e){setState(()=>status='Ошибка: '+e.toString());}finally{setState(()=>busy=false);}}
+  Future<void> prepare()async{
+    final q=command.text.trim();if(q.isEmpty||busy)return;setState(()=>busy=true);
+    try{
+      if(!loaded){final d=await GitHubProject.fetchMain();source=d['content']!;sha=d['sha']!;loaded=true;}
+      final p=await Store.getProvider(),m=await Store.getModel();
+      final a=await AiService.ask(provider:p,model:m,prompt:'Ты безопасный редактор Flutter проекта. Верни только JSON: {"action":"patch","summary":"описание","find":"точный фрагмент","replace":"новый фрагмент"} или {"action":"unsupported","summary":"причина"}. find должен существовать в исходнике ровно один раз. Только небольшой patch. Не удаляй безопасность, API key storage или проверки. Не добавляй произвольное выполнение кода. Запрос: '+q+'\nИСХОДНИК:\n'+source);
+      final d=jsonDecode(a.replaceAll(RegExp(r'^```json\s*|\s*```$'),'').trim());
+      if(d['action']!='patch'){setState(()=>status='AI: '+(d['summary']??'не поддерживается').toString());return;}
+      final f=d['find']?.toString()??'',r=d['replace']?.toString()??'';final n=RegExp(RegExp.escape(f),dotAll:true).allMatches(source).length;
+      if(f.isEmpty||n!=1)throw Exception('Patch отклонён: совпадений '+n.toString());
+      setState((){find=f;replace=r;summary=d['summary']?.toString()??'Изменение';status='Patch готов. Проверь Diff перед применением.';tab=2;});
+    }catch(e){setState(()=>status='Ошибка AI: '+e.toString());}finally{setState(()=>busy=false);}
   }
-
-  Future<void> applyFont(String font) async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('app_font', font);
-    kuzayFont.value = font;
-    if (mounted) setState(() => status = 'Шрифт изменён: $font');
+  Future<void> apply()async{
+    if(find==null||replace==null||busy)return;setState(()=>busy=true);
+    try{final n=RegExp(RegExp.escape(find!),dotAll:true).allMatches(source).length;if(n!=1)throw Exception('Исходник изменился, загрузите его заново.');final updated=source.replaceFirst(find!,replace!);await GitHubProject.updateMain(content:updated,sha:sha,message:'Kuzay AI Self Editor: '+(summary??'patch'));setState((){source=updated;find=null;replace=null;status='Изменение применено в GitHub. Запущена сборка APK.';tab=1;});}
+    catch(e){setState(()=>status='Ошибка применения: '+e.toString());}finally{setState(()=>busy=false);}
   }
-
-  void highlightBlock(String query) {
-    final q = query.toLowerCase();
-    final i = blocks.indexWhere((b) => b[0].toLowerCase().contains(q) || b[1].toLowerCase().contains(q));
-    setState(() {
-      highlighted = i;
-      status = i >= 0 ? 'Подсвечен блок: ${blocks[i][0]}' : 'Блок не найден';
-      if (i >= 0) tab = 0;
-    });
-  }
-
-  Future<void> runCommand() async {
-    final raw = command.text.trim();
-    final q = raw.toLowerCase();
-    if (q.isEmpty) return;
-
-    if (q.contains('исходн') || q.contains('код')) {
-      setState(() { tab = 1; status = 'Открыт исходный код приложения'; });
-      return;
-    }
-    if (q.contains('шрифт')) {
-      if (q.contains('моно') || q.contains('monospace') || q.contains('код')) {
-        await applyFont('monospace');
-      } else if (q.contains('serif') || q.contains('с засеч')) {
-        await applyFont('serif');
-      } else {
-        await applyFont('sans-serif');
-      }
-      highlightBlock('Шрифт приложения');
-      return;
-    }
-    if (q.contains('подсвет') || q.contains('найди') || q.contains('блок')) {
-      if (q.contains('шрифт')) highlightBlock('Шрифт приложения');
-      else if (q.contains('цвет')) highlightBlock('Цветовая тема');
-      else if (q.contains('чат')) highlightBlock('Чат');
-      else if (q.contains('workspace') || q.contains('рабоч')) highlightBlock('Workspace');
-      else if (q.contains('дизайн')) highlightBlock('AI Designer');
-      else if (q.contains('настрой')) highlightBlock('Настройки ИИ');
-      else highlightBlock(q.replaceAll(RegExp(r'подсвети|подсветь|найди|блок'), '').trim());
-      return;
-    }
-
-    setState(() => status = 'AI анализирует команду…');
-    try {
-      final provider = await Store.getProvider();
-      final model = await Store.getModel();
-      final answer = await AiService.ask(
-        provider: provider,
-        model: model,
-        prompt: '''Ты управляешь безопасным саморедактором Kuzay AI.
-Верни только одну строку JSON.
-Разрешённые действия:
-{"action":"open_source"}
-{"action":"highlight","block":"Шрифт приложения|Цветовая тема|Навигация|Настройки ИИ|Чат|Workspace|AI Designer"}
-{"action":"set_font","font":"sans-serif|serif|monospace"}
-Если выполнить нельзя, верни {"action":"unsupported"}.
-Запрос пользователя: $raw''',
-      );
-      final data = jsonDecode(answer.trim());
-      final action = data['action']?.toString();
-      if (action == 'open_source') {
-        setState(() { tab = 1; status = 'AI открыл исходный код'; });
-      } else if (action == 'highlight') {
-        highlightBlock(data['block']?.toString() ?? '');
-      } else if (action == 'set_font') {
-        final font = data['font']?.toString() ?? 'sans-serif';
-        if (['sans-serif','serif','monospace'].contains(font)) {
-          await applyFont(font);
-          highlightBlock('Шрифт приложения');
-        }
-      } else {
-        setState(() => status = 'AI не разрешил это изменение.');
-      }
-    } catch (e) {
-      setState(() => status = 'Не удалось обработать AI-команду: $e');
-    }
-  }
-  Widget sourceView() {
-    const source = '''// Kuzay AI — карта исходного кода
-//
-// Этот экран показывает логические блоки приложения.
-// Полный исходник проекта находится в Workspace.
-
-main.dart
-├─ KuzayApp
-│  └─ ThemeData → fontFamily
-├─ HomePage
-│  ├─ Chat
-│  ├─ Voice input
-│  └─ File attachment
-├─ SettingsPage
-│  └─ AI providers / models / API keys
-├─ ComparePage
-├─ WorkspacePage
-├─ DesignerPage
-├─ PluginsPage
-└─ SelfEditorPage
-   └─ безопасные изменения конфигурации''';
-    return Column(children: [
-      const Align(alignment: Alignment.centerLeft, child: Text('Исходный код / карта проекта', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold))),
-      const SizedBox(height: 10),
-      Expanded(child: Container(width: double.infinity, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: const Color(0xFF111111), borderRadius: BorderRadius.circular(14)), child: SingleChildScrollView(child: SelectableText(source, style: const TextStyle(fontFamily: 'monospace', color: Colors.white70))))),
-      const SizedBox(height: 10),
-      const Text('Саморедактор применяет только разрешённые изменения конфигурации. Полный исходник можно просматривать и редактировать в Workspace.', style: TextStyle(color: Colors.white54)),
-    ]);
-  }
-
-  Widget blocksView() => ListView(
-    children: [
-      const Text('Блоки приложения', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 8),
-      const Text('AI может найти нужный блок и подсветить его. Нажмите на блок вручную — он тоже подсветится.', style: TextStyle(color: Colors.white54)),
-      const SizedBox(height: 12),
-      ...List.generate(blocks.length, (i) {
-        final b = blocks[i];
-        final active = highlighted == i;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          color: active ? const Color(0xFF3B1D0B) : panel,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: active ? orange : Colors.transparent, width: active ? 2 : 0),
-          ),
-          child: ListTile(
-            onTap: () => setState(() { highlighted = i; status = 'Выбран блок: ${b[0]}'; }),
-            leading: Icon(active ? Icons.highlight : Icons.code, color: active ? orange : Colors.white54),
-            title: Text(b[0]),
-            subtitle: Text('${b[1]}\n${b[2]}', style: const TextStyle(color: Colors.white54)),
-            isThreeLine: true,
-          ),
-        );
-      }),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Саморедактор Kuzay AI'),
-      actions: [
-        IconButton(tooltip: 'Открыть Workspace', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WorkspacePage())), icon: const Icon(Icons.folder_open)),
-      ],
-    ),
-    body: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Column(children: [
-        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
-          const Align(alignment: Alignment.centerLeft, child: Text('AI-команда', style: TextStyle(fontWeight: FontWeight.bold))),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: TextField(controller: command, maxLines: 2, decoration: const InputDecoration(hintText: 'Например: «измени шрифт на моноширинный»'))),
-            const SizedBox(width: 8),
-            IconButton(onPressed: runCommand, icon: const Icon(Icons.auto_awesome, color: orange), tooltip: 'Выполнить'),
-          ]),
-          const SizedBox(height: 8),
-          Align(alignment: Alignment.centerLeft, child: Text(status, style: const TextStyle(color: Colors.white54))),
-        ])),
-        const SizedBox(height: 8),
-        SizedBox(height: 50, child: Row(children: [
-          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 0), icon: const Icon(Icons.view_list), label: const Text('Блоки'))),
-          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 1), icon: const Icon(Icons.code), label: const Text('Исходный код'))),
-          Expanded(child: TextButton.icon(onPressed: () => setState(() => tab = 2), icon: const Icon(Icons.text_fields), label: const Text('Шрифт'))),
-        ])),
-        Expanded(child: tab == 0 ? blocksView() : tab == 1 ? sourceView() : Column(children: [
-          const Align(alignment: Alignment.centerLeft, child: Text('Изменение шрифта', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: selectedFont,
-            items: const [
-              DropdownMenuItem(value: 'sans-serif', child: Text('Обычный Sans')),
-              DropdownMenuItem(value: 'serif', child: Text('Serif')),
-              DropdownMenuItem(value: 'monospace', child: Text('Моноширинный')),
-            ],
-            onChanged: (v) { if (v != null) { setState(() => selectedFont = v); applyFont(v); } },
-            decoration: const InputDecoration(labelText: 'Шрифт приложения'),
-          ),
-          const SizedBox(height: 18),
-          Card(child: Padding(padding: const EdgeInsets.all(18), child: Text('Пример текста\nKuzay AI — 0123456789\nИзменения применяются сразу во всём интерфейсе.', style: TextStyle(fontSize: 18, fontFamily: selectedFont)))),
-        ])),
-      ]),
-    ),
-  );
-}
-
-class PluginsPage extends StatefulWidget {
+  Widget github()=>ListView(children:[const Text('GitHub проекта',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:8),const Text('Для записи нужен GitHub token с правом Contents: Write.',style:TextStyle(color:Colors.white54)),const SizedBox(height:12),TextField(controller:token,obscureText:true,decoration:const InputDecoration(labelText:'GitHub token')),const SizedBox(height:8),Row(children:[Expanded(child:OutlinedButton(onPressed:()=>GitHubProject.setToken(token.text.trim()),child:const Text('Сохранить'))),const SizedBox(width:8),Expanded(child:ElevatedButton(onPressed:busy?null:load,child:const Text('Загрузить исходник')))]),const SizedBox(height:12),const Card(child:Padding(padding:EdgeInsets.all(12),child:Text('Token хранится локально в защищённом хранилище Android. Не отправляйте его ИИ.')))]);
+  Widget diff()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(summary??'Изменение',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),const SizedBox(height:10),const Text('БЫЛО',style:TextStyle(color:Colors.redAccent,fontWeight:FontWeight.bold)),Card(child:Padding(padding:const EdgeInsets.all(10),child:SelectableText(find??'',style:const TextStyle(fontFamily:'monospace')))),const Text('СТАНЕТ',style:TextStyle(color:Colors.greenAccent,fontWeight:FontWeight.bold)),Card(child:Padding(padding:const EdgeInsets.all(10),child:SelectableText(replace??'',style:const TextStyle(fontFamily:'monospace')))),const Spacer(),Row(children:[Expanded(child:OutlinedButton(onPressed:()=>setState((){find=null;replace=null;}),child:const Text('Отмена'))),const SizedBox(width:8),Expanded(child:ElevatedButton(onPressed:busy?null:apply,child:const Text('Применить')))])]);
+  Widget sourceView()=>Column(children:[Row(children:[Expanded(child:Text(loaded?'lib/main.dart • '+sha.substring(0,8):'Исходник не загружен')),IconButton(onPressed:busy?null:load,icon:const Icon(Icons.refresh,color:orange))]),Expanded(child:SingleChildScrollView(child:SelectableText(loaded?source:'Нажмите загрузить.',style:const TextStyle(fontFamily:'monospace',fontSize:12))))]);
+  Widget blockView()=>ListView(children:[const Text('Блоки приложения',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),...blockList.map((x)=>Card(child:ListTile(title:Text(x),leading:const Icon(Icons.code,color:orange),onTap:()=>setState(()=>status='Выбран блок: '+x))))]);
+  @override Widget build(BuildContext c)=>Scaffold(appBar:AppBar(title:const Text('Саморедактор Kuzay AI')),body:Padding(padding:const EdgeInsets.all(12),child:Column(children:[Card(child:Padding(padding:const EdgeInsets.all(10),child:Column(children:[TextField(controller:command,maxLines:2,decoration:const InputDecoration(hintText:'Например: «добавь две нейросети»')),const SizedBox(height:6),Row(children:[Expanded(child:Text(status,style:const TextStyle(color:Colors.white54))),IconButton(onPressed:busy?null:prepare,icon:const Icon(Icons.auto_awesome,color:orange))])]))),Row(children:[Expanded(child:TextButton(onPressed:()=>setState(()=>tab=0),child:const Text('Блоки'))),Expanded(child:TextButton(onPressed:()=>setState(()=>tab=1),child:const Text('Исходник'))),Expanded(child:TextButton(onPressed:()=>setState(()=>tab=2),child:const Text('Diff'))),Expanded(child:TextButton(onPressed:()=>setState(()=>tab=3),child:const Text('GitHub')))]),Expanded(child:tab==0?blockView():tab==1?sourceView():tab==2?diff():github())])));
+}class PluginsPage extends StatefulWidget {
   const PluginsPage({super.key});
   @override State<PluginsPage> createState()=>_PluginsPageState();
 }
