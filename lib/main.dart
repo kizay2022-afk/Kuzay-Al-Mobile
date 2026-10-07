@@ -44,7 +44,7 @@ class Store {
   static const providers = ['OpenAI', 'Gemini', 'Grok', 'Custom'];
 
   static String defaultModel(String p) {
-    if (p == 'Gemini') return 'gemini-1.5-flash';
+    if (p == 'Gemini') return 'gemini-2.5-flash';
     if (p == 'Grok') return 'grok-3-mini';
     return 'gpt-4o-mini';
   }
@@ -353,7 +353,7 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 16),
       const Text('Примеры моделей', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
       const SizedBox(height: 8),
-      const Text('OpenAI: gpt-4o-mini\nGemini: gemini-1.5-flash\nGrok: модель, доступная вашему xAI API-аккаунту\nCustom: URL совместимого /chat/completions API'),
+      const Text('OpenAI: gpt-4o-mini\nGemini: gemini-2.5-flash\nGrok: модель, доступная вашему xAI API-аккаунту\nCustom: URL совместимого /chat/completions API'),
     ]),
   );
 }
@@ -406,19 +406,55 @@ class _WorkspacePageState extends State<WorkspacePage> {
   int tab=0;
   final code=TextEditingController(text:'// Kuzay Workspace\n\nvoid main() {\n  print("Hello from Kuzay");\n}');
   final notes=TextEditingController();
+  final files=<String>[];
+  String? selectedFile;
+  String filePreview='';
+  @override void initState(){super.initState(); _load();}
+  Future<void> _load() async { final p=await SharedPreferences.getInstance(); notes.text=p.getString('workspace_notes')??''; if(mounted)setState((){}); }
+  Future<void> addFile() async {
+    try {
+      final r=await FilePicker.platform.pickFiles(withData:true,allowMultiple:true);
+      if(r==null)return;
+      setState(() {
+        for(final f in r.files) { if(!files.contains(f.name)) files.add(f.name); }
+        if(r.files.isNotEmpty) {
+          selectedFile=r.files.first.name;
+          final b=r.files.first.bytes;
+          if(b!=null && b.length<=300000) { try { filePreview=utf8.decode(b); } catch(_) { filePreview='Бинарный файл: '+r.files.first.name; } }
+          else { filePreview='Файл выбран: '+r.files.first.name+' (содержимое не отображается)'; }
+        }
+      });
+    } catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Ошибка файла: '+e.toString()))); }
+  }
+  Future<void> saveNotes() async {
+    final p=await SharedPreferences.getInstance(); await p.setString('workspace_notes',notes.text);
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Заметки сохранены')));
+  }
   @override Widget build(BuildContext context)=>Scaffold(
-    appBar:AppBar(title:const Text('Workspace')),
+    appBar:AppBar(title:const Text('Workspace'),actions:[IconButton(onPressed:saveNotes,icon:const Icon(Icons.save))]),
     body:Column(children:[
-      SizedBox(height:52,child:Row(children:[_tab(0,'Chat',Icons.chat),_tab(1,'Code',Icons.code),_tab(2,'Files',Icons.folder),_tab(3,'Notes',Icons.notes)])),
-      Expanded(child:Padding(padding:const EdgeInsets.all(12),child:tab==0
-        ? const Center(child:Text('Workspace Chat использует основной чат Kuzay AI.'))
-        : tab==1 ? TextField(controller:code,maxLines:null,expands:true,style:const TextStyle(fontFamily:'monospace'),decoration:const InputDecoration(hintText:'Код…'))
-        : tab==2 ? const Center(child:Column(mainAxisSize:MainAxisSize.min,children:[Icon(Icons.folder_open,size:60,color:orange),SizedBox(height:10),Text('Файловая панель готова.')]))
-        : TextField(controller:notes,maxLines:null,expands:true,decoration:const InputDecoration(hintText:'Заметки проекта…'))
+      SizedBox(height:58,child:Row(children:[_tab(0,'Chat',Icons.chat),_tab(1,'Code',Icons.code),_tab(2,'Files',Icons.folder),_tab(3,'Notes',Icons.notes)])),
+      Expanded(child:Padding(padding:const EdgeInsets.all(12),child:
+        tab==0 ? Column(children:[const Expanded(child:Center(child:Text('Workspace Chat'))),ElevatedButton.icon(onPressed:()=>Navigator.pop(context),icon:const Icon(Icons.chat),label:const Text('Открыть основной AI-чат'))]) :
+        tab==1 ? Column(children:[
+          Expanded(child:TextField(controller:code,maxLines:null,expands:true,style:const TextStyle(fontFamily:'monospace'),decoration:const InputDecoration(labelText:'Редактор кода'))),
+          const SizedBox(height:8),
+          Row(children:[
+            Expanded(child:OutlinedButton.icon(onPressed:()=>Clipboard.setData(ClipboardData(text:code.text)),icon:const Icon(Icons.copy),label:const Text('Копировать'))),
+            const SizedBox(width:8),
+            Expanded(child:ElevatedButton.icon(onPressed:()=>showDialog(context:context,builder:(_)=>AlertDialog(title:const Text('Выполнение кода'),content:const Text('Произвольный код внутри приложения не выполняется из соображений безопасности.'),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('OK'))])),icon:const Icon(Icons.play_arrow),label:const Text('Запустить')))
+          ])
+        ]) :
+        tab==2 ? Column(children:[
+          Row(children:[Expanded(child:Text(files.length.toString()+' файлов',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold))),IconButton(onPressed:addFile,icon:const Icon(Icons.add_circle,color:orange))]),
+          Expanded(child:files.isEmpty ? const Center(child:Text('Добавьте файлы проекта')) : ListView(children:files.map((name)=>ListTile(selected:name==selectedFile,leading:const Icon(Icons.insert_drive_file),title:Text(name),onTap:()=>setState(()=>selectedFile=name))).toList())),
+          if(selectedFile!=null) SizedBox(height:150,child:SingleChildScrollView(child:Text(filePreview)))
+        ]) :
+        Column(children:[Expanded(child:TextField(controller:notes,maxLines:null,expands:true,decoration:const InputDecoration(labelText:'Заметки проекта'))),const SizedBox(height:8),ElevatedButton.icon(onPressed:saveNotes,icon:const Icon(Icons.save),label:const Text('Сохранить заметки'))]
       )),
     ]),
   );
-  Widget _tab(int n,String title,IconData icon)=>Expanded(child:TextButton(onPressed:()=>setState(()=>tab=n),child:Column(children:[Icon(icon,size:19,color:tab==n?orange:Colors.white54),Text(title,style:TextStyle(fontSize:11,color:tab==n?orange:Colors.white54))])));
+  Widget _tab(int n,String title,IconData icon)=>Expanded(child:TextButton(onPressed:()=>setState(()=>tab=n),child:Column(children:[Icon(icon,size:21,color:tab==n?orange:Colors.white54),Text(title,style:TextStyle(fontSize:11,color:tab==n?orange:Colors.white54))])));
 }
 
 class DesignerPage extends StatefulWidget {
@@ -461,14 +497,32 @@ class PluginsPage extends StatefulWidget {
   @override State<PluginsPage> createState()=>_PluginsPageState();
 }
 class _PluginsPageState extends State<PluginsPage> {
-  final plugins=<String,bool>{'Web Search':false,'Calculator':true,'Code Helper':true,'File Tools':false};
+  final plugins=<String,bool>{'Calculator':true,'Code Helper':true,'File Tools':true,'Web Search':false};
+  final calc=TextEditingController();
+  String calcResult='';
+  void calculate(){
+    final x=calc.text.replaceAll(' ','');
+    final m=RegExp(r'^(-?\d+(?:\.\d+)?)([+\-*/])(-?\d+(?:\.\d+)?)$').firstMatch(x);
+    if(m==null){setState(()=>calcResult='Поддерживаются простые операции: 2+2, 10*5, 8/2');return;}
+    final a=double.parse(m.group(1)!); final b=double.parse(m.group(3)!); final op=m.group(2);
+    if(op=='/' && b==0){setState(()=>calcResult='Деление на ноль');return;}
+    final v=op=='+'?a+b:op=='-'?a-b:op=='*'?a*b:a/b;
+    setState(()=>calcResult=v.toStringAsFixed(v%1==0?0:6));
+  }
   @override Widget build(BuildContext context)=>Scaffold(
     appBar:AppBar(title:const Text('Plugins')),
     body:ListView(padding:const EdgeInsets.all(12),children:[
-      const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('Встроенные инструменты Kuzay. Переключатели действуют в текущем сеансе.'))),
+      const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('Безопасные встроенные инструменты. Они работают локально и не выполняют произвольный код.'))),
       ...plugins.entries.map((e)=>SwitchListTile(title:Text(e.key),subtitle:Text(e.value?'Включён':'Выключен'),value:e.value,onChanged:(v)=>setState(()=>plugins[e.key]=v))),
+      if(plugins['Calculator']==true) ...[
+        const SizedBox(height:12), const Text('Калькулятор',style:TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
+        const SizedBox(height:8), TextField(controller:calc,decoration:const InputDecoration(hintText:'Например: 25*4')),
+        const SizedBox(height:8), ElevatedButton(onPressed:calculate,child:const Text('Посчитать')),
+        if(calcResult.isNotEmpty) Padding(padding:const EdgeInsets.all(12),child:SelectableText(calcResult,style:const TextStyle(fontSize:20,color:orange)))
+      ],
+      if(plugins['Web Search']==true) const Card(child:Padding(padding:EdgeInsets.all(14),child:Text('Web Search включён как разрешение. Для реального поиска нужен настроенный поисковый API.'))),
       const SizedBox(height:10),
-      OutlinedButton.icon(onPressed:()=>showDialog(context:context,builder:(_)=>AlertDialog(title:const Text('Плагины'),content:const Text('Плагины подключаются через безопасные декларативные разрешения. Произвольный код внутри приложения не выполняется.'),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('OK'))])),icon:const Icon(Icons.info_outline),label:const Text('Подробнее')),
+      OutlinedButton.icon(onPressed:()=>showDialog(context:context,builder:(_)=>AlertDialog(title:const Text('Безопасность'),content:const Text('Плагины не выполняют загруженный произвольный код. Доступ к инструментам включается пользователем.'),actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('OK'))])),icon:const Icon(Icons.security),label:const Text('О безопасности'))
     ]),
   );
 }
