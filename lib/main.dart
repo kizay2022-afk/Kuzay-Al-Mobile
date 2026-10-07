@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 const orange = Color(0xFFFF6A00);
 const black = Color(0xFF090909);
@@ -137,8 +139,38 @@ class _HomePageState extends State<HomePage> {
   String provider = 'OpenAI';
   String model = 'gpt-4o-mini';
   bool sending = false;
+  bool listening = false;
+  final stt.SpeechToText speech = stt.SpeechToText();
+  String? attachedName;
+  String? attachedText;
 
   @override void initState() { super.initState(); _loadSettings(); }
+
+  Future<void> pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(withData: true, allowMultiple: false);
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      String? text;
+      if (bytes != null && bytes.length <= 300000) {
+        try { text = utf8.decode(bytes); } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() { attachedName = file.name; attachedText = text; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Файл прикреплён: ' + file.name)));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Не удалось открыть файл: ' + e.toString())));
+    }
+  }
+
+  Future<void> toggleVoice() async {
+    if (listening) { await speech.stop(); if (mounted) setState(() => listening = false); return; }
+    final available = await speech.initialize(onStatus: (status) { if (status == 'done' && mounted) setState(() => listening = false); });
+    if (!available) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Голосовой ввод недоступен на этом устройстве.'))); return; }
+    if (mounted) setState(() => listening = true);
+    await speech.listen(onResult: (result) { if (!mounted) return; setState(() => input.text = result.recognizedWords); });
+  }
 
   Future<void> _loadSettings() async {
     final p = await SharedPreferences.getInstance();
@@ -150,16 +182,17 @@ class _HomePageState extends State<HomePage> {
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty || sending) return;
+    final prompt = attachedText == null ? text : text + '\n\n[Прикреплённый файл: ' + attachedName! + ']\n' + attachedText!;
     input.clear();
-    setState(() { messages.add(ChatMessage('user', text, provider)); sending = true; });
+    setState(() { messages.add(ChatMessage('user', text + (attachedName == null ? '' : '\n📎 ' + attachedName!), provider)); sending = true; });
     try {
-      final answer = await AiService.ask(provider: provider, model: model, prompt: text);
+      final answer = await AiService.ask(provider: provider, model: model, prompt: prompt);
       if (mounted) setState(() => messages.add(ChatMessage('assistant', answer, provider)));
     } catch (e) {
       if (mounted) setState(() => messages.add(ChatMessage('assistant', 'Ошибка: ' + e.toString(), provider)));
     } finally {
       if (mounted) {
-        setState(() => sending = false);
+        setState(() { sending = false; attachedName = null; attachedText = null; });
         await Future.delayed(const Duration(milliseconds: 50));
         if (scroll.hasClients) scroll.animateTo(scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       }
@@ -224,9 +257,12 @@ class _HomePageState extends State<HomePage> {
               },
             ),
       ),
-      SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(10, 4, 10, 10), child: Row(children: [
+      if (attachedName != null) Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Align(alignment: Alignment.centerLeft, child: InputChip(label: Text('📎 ' + attachedName!), onDeleted: () => setState(() { attachedName = null; attachedText = null; })))),
+      SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(6, 4, 6, 10), child: Row(children: [
+        IconButton(tooltip:'Файл', onPressed: sending ? null : pickFile, icon: const Icon(Icons.attach_file, color: Colors.white70)),
+        IconButton(tooltip:'Голос', onPressed: sending ? null : toggleVoice, icon: Icon(listening ? Icons.stop_circle : Icons.mic, color: listening ? orange : Colors.white70)),
         Expanded(child: TextField(controller: input, maxLines: 4, minLines: 1, decoration: const InputDecoration(hintText: 'Напишите сообщение…'))),
-        const SizedBox(width: 6),
+        const SizedBox(width: 4),
         IconButton(onPressed: sending ? null : send, icon: sending ? const SizedBox(width: 23, height: 23, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send, color: orange)),
       ]))),
     ]),
