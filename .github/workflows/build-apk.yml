@@ -20,7 +20,7 @@ jobs:
           channel: stable
           cache: true
       - name: Create Android project
-        run: flutter create . --platforms=android
+        run: flutter create . --platforms=android --project-name kuzay_ai
       - name: Get packages
         run: flutter pub get
       - name: Build APK
