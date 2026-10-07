@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -525,6 +526,9 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
   String filePath='lib/main.dart', source='', sha='', status='Готов';
   String? find,replace,summary,patchFile;
   int? highlightStart,highlightEnd;
+  String buildStatus='';
+  String buildUrl='';
+  Timer? buildTimer;
   final files=SelfEditorEngine.allowedFiles;
   final blockList=const ['Шрифт приложения','Цветовая тема','Навигация','Настройки ИИ','Чат','Workspace','AI Designer','Саморедактор','Плагины'];
 
@@ -547,10 +551,8 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
     try{
       if(!loaded){final d=await SelfEditorEngine.load(filePath);source=d['content']!;sha=d['sha']!;loaded=true;}
       final p=await Store.getProvider(),m=await Store.getModel();
-      final a=await AiService.ask(provider:p,model:m,prompt:'Ты безопасный редактор Flutter проекта. Верни только JSON: {"action":"patch","file":"путь","summary":"описание","find":"точный фрагмент","replace":"новый фрагмент"} или {"action":"unsupported","summary":"причина"}. file должен быть одним из: '+SelfEditorEngine.allowedFiles.join(', ')+'. find должен существовать в выбранном исходнике ровно один раз. Только небольшой patch. Не удаляй безопасность, API key storage или проверки. Не добавляй произвольное выполнение кода. Запрос: '+q+'
-ТЕКУЩИЙ ФАЙЛ: '+filePath+'
-ИСХОДНИК:
-'+source);
+      final context=find==null?source:'ВЫБРАННЫЙ БЛОК:\n'+find+'\n\nПОЛНЫЙ ИСХОДНИК ДЛЯ КОНТЕКСТА:\n'+source;
+      final a=await AiService.ask(provider:p,model:m,prompt:'Ты безопасный редактор Flutter проекта. Верни только JSON: {"action":"patch","file":"путь","summary":"описание","find":"точный фрагмент","replace":"новый фрагмент"} или {"action":"unsupported","summary":"причина"}. file должен быть одним из: '+SelfEditorEngine.allowedFiles.join(', ')+'. find должен существовать в выбранном исходнике ровно один раз. Если выбран блок, изменяй прежде всего его. Только небольшой patch. Не удаляй безопасность, API key storage или проверки. Не добавляй произвольное выполнение кода. Запрос: '+q+'\nТЕКУЩИЙ ФАЙЛ: '+filePath+'\n'+context);
       final patch=SelfEditorEngine.parsePatch(a,filePath);
       String patchSource=source;
       String patchSha=sha;
@@ -576,8 +578,9 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
       final currentSha=d['sha']!;
       final patch=SelfPatch(filePath:target,summary:summary??'Изменение',find:find!,replace:replace!);
       final updated=SelfEditorEngine.apply(current,patch);
-      await GitHubProject.updateFile(filePath:target,content:updated,sha:currentSha,message:'Kuzay AI Self Editor: '+(summary??'patch'));
-      setState((){filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;status='Изменение применено в GitHub. Запущена сборка APK.';tab=1;});
+      final commit=await GitHubProject.updateFile(filePath:target,content:updated,sha:currentSha,message:'Kuzay AI Self Editor: '+(summary??'patch'));
+      setState(()=>{filePath=target;source=updated;sha=currentSha;find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;buildStatus='queued';buildUrl='';status='Изменение применено. Ожидаю GitHub Actions…';tab=1;});
+      _watchBuild(commit);
     }catch(e){setState(()=>status='Ошибка применения: '+e.toString());}
     finally{if(mounted)setState(()=>busy=false);}
   }
@@ -601,17 +604,51 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
   Widget diff()=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     Text(summary??'Изменение',style:const TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     Text('Файл: '+(patchFile??filePath),style:const TextStyle(color:Colors.white54)),
-    const SizedBox(height:10),
-    const Text('БЫЛО',style:TextStyle(color:Colors.redAccent,fontWeight:FontWeight.bold)),
-    Expanded(child:Card(child:SingleChildScrollView(padding:const EdgeInsets.all(10),child:SelectableText(find??'',style:const TextStyle(fontFamily:'monospace'))))),
-    const Text('СТАНЕТ',style:TextStyle(color:Colors.greenAccent,fontWeight:FontWeight.bold)),
-    Expanded(child:Card(child:SingleChildScrollView(padding:const EdgeInsets.all(10),child:SelectableText(replace??'',style:const TextStyle(fontFamily:'monospace'))))),
+    const SizedBox(height:8),
+    Expanded(child:Card(child:SingleChildScrollView(padding:const EdgeInsets.all(10),child:SelectableText(_lineDiff(find??'',replace??''),style:const TextStyle(fontFamily:'monospace',fontSize:12))))),
     Row(children:[
-      Expanded(child:OutlinedButton(onPressed:()=>setState((){find=null;replace=null;patchFile=null;}),child:const Text('Отмена'))),
+      Expanded(child:OutlinedButton(onPressed:()=>setState((){find=null;replace=null;patchFile=null;highlightStart=null;highlightEnd=null;}),child:const Text('Отмена'))),
       const SizedBox(width:8),
       Expanded(child:ElevatedButton(onPressed:busy?null:apply,child:const Text('Применить')))
     ])
   ]);
+
+  String _lineDiff(String before,String after){
+    final a=before.split('\\n'),b=after.split('\\n');
+    final out=<String>[];
+    final n=a.length>b.length?a.length:b.length;
+    for(var i=0;i<n;i++){
+      if(i<a.length&&i<b.length&&a[i]==b[i])out.add('  '+a[i]);
+      else{
+        if(i<a.length)out.add('- '+a[i]);
+        if(i<b.length)out.add('+ '+b[i]);
+      }
+    }
+    return out.join('\\n');
+  }
+
+  void _watchBuild(String commit) {
+    buildTimer?.cancel();
+    var attempts=0;
+    Future<void> poll() async {
+      if(!mounted)return;
+      try{
+        final b=await GitHubProject.buildStatus(commit);
+        if(!mounted)return;
+        setState((){buildStatus=b['conclusion']?.isNotEmpty==true?b['conclusion']!:b['status']??'unknown';buildUrl=b['html_url']??'';});
+        if(b['conclusion']?.isNotEmpty==true){buildTimer?.cancel();return;}
+      }catch(_){if(mounted)setState(()=>buildStatus='error');}
+      attempts++;
+      if(attempts<30)buildTimer=Timer(const Duration(seconds:10),poll);
+    }
+    poll();
+  }
+
+  Widget buildCard()=>Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    const Text('Сборка APK',style:TextStyle(fontWeight:FontWeight.bold)),
+    Text(buildStatus.isEmpty?'После применения здесь появится статус GitHub Actions.':buildStatus),
+    if(buildUrl.isNotEmpty)SelectableText(buildUrl,style:const TextStyle(color:orange,fontSize:12)),
+  ])));
 
   Widget sourceView()=>Column(children:[
     Row(children:[
@@ -716,6 +753,8 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
         Expanded(child:TextButton(onPressed:()=>setState(()=>tab=2),child:const Text('Diff'))),
         Expanded(child:TextButton(onPressed:()=>setState(()=>tab=3),child:const Text('GitHub')))
       ]),
+      if(buildStatus.isNotEmpty) buildCard(),
+      const SizedBox(height:6),
       Expanded(child:tab==0?blockView():tab==1?sourceView():tab==2?diff():github())
     ])
   );
