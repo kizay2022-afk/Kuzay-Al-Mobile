@@ -21,6 +21,18 @@ jobs:
           cache: true
       - name: Create Android project
         run: flutter create . --platforms=android --project-name kuzay_ai
+      - name: Apply Kuzay cat icon
+        shell: bash
+        run: |
+          mkdir -p android/app/src/main/res/drawable
+          cp android_icon/kuzay_cat.xml android/app/src/main/res/drawable/kuzay_cat.xml
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
+          s = s.replace('android:icon="@mipmap/ic_launcher"', 'android:icon="@drawable/kuzay_cat"')
+          p.write_text(s)
+          PY
       - name: Get packages
         run: flutter pub get
       - name: Build APK
