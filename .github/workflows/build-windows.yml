@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,10 +30,6 @@ jobs:
 
       - name: Build Windows release
         run: flutter build windows --release
-
-      - name: Install Inno Setup
-        shell: powershell
-        run: choco install innosetup --no-progress -y
 
       - name: Create installer script
         shell: powershell
