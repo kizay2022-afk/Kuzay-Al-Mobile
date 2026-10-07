@@ -472,7 +472,7 @@ class _WorkspacePageState extends State<WorkspacePage> {
           if(selectedFile!=null) SizedBox(height:150,child:SingleChildScrollView(child:Text(filePreview)))
         ]) :
         Column(children:[Expanded(child:TextField(controller:notes,maxLines:null,expands:true,decoration:const InputDecoration(labelText:'Заметки проекта'))),const SizedBox(height:8),ElevatedButton.icon(onPressed:saveNotes,icon:const Icon(Icons.save),label:const Text('Сохранить заметки'))]
-      )),
+      ))),
     ]),
   );
   Widget _tab(int n,String title,IconData icon)=>Expanded(child:TextButton(onPressed:()=>setState(()=>tab=n),child:Column(children:[Icon(icon,size:21,color:tab==n?orange:Colors.white54),Text(title,style:TextStyle(fontSize:11,color:tab==n?orange:Colors.white54))])));
@@ -757,8 +757,7 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
       if(buildStatus.isNotEmpty) buildCard(),
       const SizedBox(height:6),
       Expanded(child:tab==0?blockView():tab==1?sourceView():tab==2?diff():github())
-    ])
-  );
+    ])));
 }
 class PluginsPage extends StatefulWidget {
   const PluginsPage({super.key});
