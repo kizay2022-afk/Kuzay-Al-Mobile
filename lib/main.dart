@@ -625,8 +625,75 @@ class _SelfEditorPageState extends State<SelfEditorPage>{
   Widget blockView()=>ListView(children:[
     const Text('Блоки приложения',style:TextStyle(fontSize:20,fontWeight:FontWeight.bold)),
     const SizedBox(height:6),
-    ...blockList.map((x)=>Card(child:ListTile(title:Text(x),leading:const Icon(Icons.code,color:orange),onTap:()=>setState(()=>status='Выбран блок: '+x))))
+    const Text('Нажмите на блок — Kuzay найдёт связанный код и покажет его строки.',style:TextStyle(color:Colors.white54)),
+    const SizedBox(height:6),
+    ...blockList.map((x)=>Card(child:ListTile(
+      title:Text(x),
+      subtitle:Text(_blockHint(x)),
+      leading:const Icon(Icons.code,color:orange),
+      trailing:const Icon(Icons.arrow_forward_ios,size:16,color:Colors.white38),
+      onTap:()=>_selectBlock(x),
+    )))
   ]);
+
+  String _blockHint(String name){
+    const hints={
+      'Шрифт приложения':'ThemeData / fontFamily',
+      'Цветовая тема':'ThemeData / colorScheme',
+      'Навигация':'Drawer / routes',
+      'Настройки ИИ':'Store / provider settings',
+      'Чат':'HomePage / AiService',
+      'Workspace':'WorkspacePage',
+      'AI Designer':'DesignerPage',
+      'Саморедактор':'SelfEditorPage',
+      'Плагины':'PluginsPage',
+    };
+    return hints[name]??'Код приложения';
+  }
+
+  Future<void> _selectBlock(String name) async {
+    if(busy)return;
+    setState(()=>busy=true);
+    try{
+      if(!loaded){
+        final d=await SelfEditorEngine.load(filePath);
+        source=d['content']!;sha=d['sha']!;loaded=true;
+      }
+      final ranges={
+        'Шрифт приложения':RegExp(r'fontFamily:\s*font'),
+        'Цветовая тема':RegExp(r'colorScheme:\s*const ColorScheme'),
+        'Навигация':RegExp(r'drawer:\s*Drawer'),
+        'Настройки ИИ':RegExp(r'class Store'),
+        'Чат':RegExp(r'class HomePage'),
+        'Workspace':RegExp(r'class WorkspacePage'),
+        'AI Designer':RegExp(r'class DesignerPage'),
+        'Саморедактор':RegExp(r'class SelfEditorPage'),
+        'Плагины':RegExp(r'class PluginsPage'),
+      };
+      final re=ranges[name];
+      if(re==null) throw Exception('Для блока нет карты исходника.');
+      final m=re.firstMatch(source);
+      if(m==null) throw Exception('Не найдено соответствие в $filePath.');
+      final start=m.start;
+      final endLine=(start<source.length?source.substring(0,start):source).split('\n').length;
+      int endOffset=endLine;
+      final loc=SelfEditorLocator.locate(source,source.substring(m.start,m.end));
+      setState((){
+        find=source.substring(m.start,m.end);
+        replace=find;
+        patchFile=filePath;
+        highlightStart=loc?.startLine??endLine;
+        highlightEnd=loc?.endLine??endLine;
+        summary='Блок: '+name;
+        status='Выбран блок «'+name+'» — строка '+highlightStart.toString();
+        tab=1;
+      });
+    }catch(e){
+      setState(()=>status='Ошибка поиска блока: '+e.toString());
+    }finally{
+      if(mounted)setState(()=>busy=false);
+    }
+  }
 
   @override Widget build(BuildContext c)=>Scaffold(
     appBar:AppBar(title:const Text('Саморедактор Kuzay AI')),
