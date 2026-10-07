@@ -16,7 +16,7 @@ class GitHubProject {
       headers: {'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}).timeout(const Duration(seconds:30));
     if (r.statusCode != 200) throw Exception('GitHub HTTP ${r.statusCode}');
     final d = jsonDecode(r.body);
-    final bytes = base64Decode((d['content'] as String).replaceAll(RegExp(r'\\s'), ''));
+    final bytes = base64Decode((d['content'] as String).replaceAll(RegExp(r'\s'), ''));
     return {'sha': d['sha'].toString(), 'content': utf8.decode(bytes)};
   }
 
